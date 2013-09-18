@@ -49,7 +49,6 @@ var settings = {
 var baseGeometry, baseMesh, baseMaterial;
 var terrainGeometry, terrainMesh, terrainMaterial;
 var samplePoints, triangles;
-var cloudSystem, cloudMesh, cloudMaterial;
 
 var clock = new THREE.Clock();
 
@@ -98,15 +97,7 @@ function samplePlane() {
 function buildMeshes() {
 	PerlinSimplex.noiseDetail(settings.noiseOctaves, settings.noiseFalloff);
 
-	if(cloudSystem) scene.remove(cloudSystem);
-	cloudGeometry = new THREE.Geometry();
-	cloudGeometry.vertices = samplePoints;
-	cloudGeometry.vertices.add(planeGeometry.vertices);
-	cloudMaterial = new THREE.ParticleBasicMaterial({color: 'white', size: 5});
-	cloudSystem = new THREE.ParticleSystem(cloudGeometry, cloudMaterial);
-	scene.add(cloudSystem);
-
-	triangles = triangulate(cloudGeometry.vertices.map(getField));
+	triangles = triangulate(samplePoints.concat(planeGeometry.vertices).map(getField));
 
 	if(baseMesh) scene.remove(baseMesh);
 	baseGeometry = new THREE.Geometry();
