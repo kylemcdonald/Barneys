@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
 <style>
 body {
-	background-color: black;
+	background-color: gray;
 	margin: 0px;
 	overflow: hidden;
 }
@@ -14,13 +14,18 @@ body {
 </head>
 <body>
 <div id="container"></div>
-<script src="../three.js/build/three.min.js"></script>
-<script src="../three.js/examples/js/controls/OrbitControls.js"></script>
-<script src="../three.js/examples/js/libs/stats.min.js"></script>
-<script src="../delaunay/delaunay.js"></script>
+<script src="./js/stats.min.js"></script>
+<script src="./js/dat.gui.min.js"></script>
+
+<script src="./js/delaunay.js"></script>
+
+<script src="./js/three.min.js"></script>
+<script src="./js/OrbitControls.js"></script>
+<script src="./js/OBJLoader.js"></script>
+<script src="./js/STLExporter.js"></script>
 
 <script src="./js/sugar.min.js"></script>
-<script src="./js/dat.gui.min.js"></script>
+
 <script src="./js/base.js"></script>
 <script src="./js/Perlin.js"></script>
 <script src="./js/PerlinSimplex.js"></script>
@@ -28,27 +33,38 @@ body {
 
 /*
 - switch to shader that shows mirror ball texture overlay
-- show context (room)
 - some kind of raymarching/casting to get reflections?
+- deferred renderer with area light>
++ better placement of randomly selected points to avoid small slivers
++ don't place too near edges, only four corners should be convexities
++ export mesh (closed)
+- curved surfaces
 */
 
 var container, stats;
 var camera, controls, scene, renderer;
 
-var settings = {
-	totalPoints: 256,
-	modelWidth: 600,
-	modelDepth: 200,
-	modelHeight: 1400,
-	modelDetail: .001,
-	noiseOctaves: 6,
-	noiseFalloff: .9,
-	noiseOffset: 0
-};
-
 var baseGeometry, baseMesh, baseMaterial;
 var terrainGeometry, terrainMesh, terrainMaterial;
 var samplePoints, triangles;
+
+var settings = {
+	totalPoints: 256,
+	modelWidth: 540,
+	modelDepth: 190,
+	modelHeight: 600,
+	modelDetail: .001,
+	noiseOctaves: 6,
+	noiseFalloff: 1.4,
+	noiseOffset: 50
+};
+
+var actions = {
+	exportSTL: function () {
+		var exporter = new THREE.STLExporter();
+		window.BlobBuilder = window.BlobBuilder || window.WebKitBlobBuilder || window.MozBlobBuilder;
+	}
+};
 
 var clock = new THREE.Clock();
 
@@ -58,15 +74,46 @@ window.onload = function() {
 	animate();
 };
 
+var model;
+
 function init() {
 	container = document.getElementById('container');
 
 	camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 20000);
 	scene = new THREE.Scene();
 
+	var ambient = new THREE.AmbientLight(0x112233);
+	scene.add(ambient);
+
+	var pointLight = new THREE.PointLight(0xffeedd);
+	pointLight.position.set(0, 0, 300);
+	scene.add(pointLight);
+
+	var path = "./textures/cubemap/";
+	var format = '.jpg';
+	var urls = [
+		path + 'px' + format, path + 'nx' + format,
+		path + 'py' + format, path + 'ny' + format,
+		path + 'pz' + format, path + 'nz' + format
+	];
+	var textureCube = THREE.ImageUtils.loadTextureCube( urls );
+	terrainMaterial = new THREE.MeshBasicMaterial({color: 0xffffff, envMap: textureCube});
+	
+	var loader = new THREE.OBJLoader();
+	loader.load('models/windows.obj', function (object) {
+		model = object;
+		model.rotateY(-Math.PI / 2);
+		model.position = {x: -780, y: -200, z: -110};
+		var roomMaterial = new THREE.MeshLambertMaterial({color: 0xffffff, side: THREE.DoubleSide});
+		object.traverse( function (child) {
+			child.material = roomMaterial;	
+		});
+		scene.add(object);
+	});
+
 	camera.position.x = 0;
-	camera.position.y = 100;
-	camera.position.z = 500;
+	camera.position.y = -100;
+	camera.position.z = 600;
 
 	generate();
 
@@ -74,15 +121,13 @@ function init() {
 	renderer.setSize(window.innerWidth, window.innerHeight);
 
 	controls = new THREE.OrbitControls(camera, renderer.domElement);
-	controls.movementSpeed = 1000;
-	controls.lookSpeed = 0.1;
 
 	container.appendChild(renderer.domElement);
 
 	stats = new Stats();
 	stats.domElement.style.position = 'absolute';
 	stats.domElement.style.top = '0px';
-	container.appendChild(stats.domElement);
+	// container.appendChild(stats.domElement);
 
 	window.addEventListener('resize', onWindowResize, false);
 }
@@ -97,7 +142,8 @@ function samplePlane() {
 function buildMeshes() {
 	PerlinSimplex.noiseDetail(settings.noiseOctaves, settings.noiseFalloff);
 
-	triangles = triangulate(samplePoints.concat(planeGeometry.vertices).map(getField));
+	var allPoints = samplePoints.concat(planeGeometry.vertices).map(getField);
+	triangles = triangulate(allPoints);
 
 	if(baseMesh) scene.remove(baseMesh);
 	baseGeometry = new THREE.Geometry();
@@ -113,20 +159,12 @@ function buildMeshes() {
 	baseGeometry.computeFaceNormals();
 	baseMaterial = new THREE.MeshNormalMaterial({color: 0xffffff, wireframe: true});
 	baseMesh = new THREE.Mesh(baseGeometry, baseMaterial);
-	//scene.add(baseMesh);
+	// scene.add(baseMesh);
 
-	var path = "../three.js/examples/textures/cube/Bridge2/";
-	var format = '.jpg';
-	var urls = [
-		path + 'px' + format, path + 'nx' + format,
-		path + 'py' + format, path + 'ny' + format,
-		path + 'pz' + format, path + 'nz' + format
-	];
-	var textureCube = THREE.ImageUtils.loadTextureCube( urls );
 	if(terrainMesh) scene.remove(terrainMesh);
 	terrainGeometry = new THREE.Geometry();
 	var indices = 0;
-	var n = 8;
+	var n = 1;
 	// inflate / deflate
 	triangles.each(function(x) {
 		for(var i = 0; i < n; i++) {
@@ -139,17 +177,13 @@ function buildMeshes() {
 				var ne = tl.clone().lerp(tr, i == 0 ? 0 : (j + 1) / i);
 				var sw = bl.clone().lerp(br, j / (i + 1));
 				var se = bl.clone().lerp(br, (j + 1) / (i + 1));
-				terrainGeometry.vertices.push(nw);
-				terrainGeometry.vertices.push(sw);
-				terrainGeometry.vertices.push(se);
+				terrainGeometry.vertices.push(nw, sw, se);
 				terrainGeometry.faces.push(new THREE.Face3(
 					indices++,
 					indices++,
 					indices++));
 				if(j + 1 < i + 1) {
-					terrainGeometry.vertices.push(nw);
-					terrainGeometry.vertices.push(se);
-					terrainGeometry.vertices.push(ne);
+					terrainGeometry.vertices.push(nw, se, ne);
 					terrainGeometry.faces.push(new THREE.Face3(
 						indices++,
 						indices++,
@@ -158,11 +192,16 @@ function buildMeshes() {
 			}
 		}
 	});
+	terrainGeometry.mergeVertices();
 	terrainGeometry.computeFaceNormals();
-	terrainMaterial = new THREE.MeshBasicMaterial({color: 0xffffff, envMap: textureCube});
+	//terrainGeometry.computeVertexNormals();
+
 	// terrainMaterial = new THREE.MeshBasicMaterial({color: 0xffffff, wireframe: true});
-	// terrainMaterial = new THREE.MeshNormalMaterial({color: 0xffffff});
+	// terrainMaterial = new THREE.MeshNormalMaterial({color: 0xffffff, wireframe: true});
+
 	terrainMesh = new THREE.Mesh(terrainGeometry, terrainMaterial);
+	terrainMesh.rotateX(Math.PI / 2);
+	terrainMesh.position.y = 100;
 	scene.add(terrainMesh);
 }
 function distanceFromRect(x, y, w, h) {
@@ -179,14 +218,15 @@ function getField(vertex) {
 }
 function initControls() {
   var gui = new dat.GUI();
-  gui.add(settings, 'totalPoints', 1, 512).onChange(generate);
-  gui.add(settings, 'modelWidth', 0, 800).onChange(generate);
-  gui.add(settings, 'modelDepth', 0, 800).onChange(generate);
+  gui.add(settings, 'totalPoints', 1, 2048).onChange(generate);
+  // gui.add(settings, 'modelWidth', 0, 800).onChange(generate);
+  // gui.add(settings, 'modelDepth', 0, 800).onChange(generate);
   gui.add(settings, 'modelHeight', 0, 1600).onChange(buildMeshes);
-  gui.add(settings, 'modelDetail', 0.00001, 0.001).onChange(buildMeshes);
+  gui.add(settings, 'modelDetail', 0.00001, 0.002).onChange(buildMeshes);
   gui.add(settings, 'noiseOctaves', 1, 8).onChange(buildMeshes);
   gui.add(settings, 'noiseFalloff', 0, 2).onChange(buildMeshes);
   gui.add(settings, 'noiseOffset', 0, 100).onChange(buildMeshes);
+  gui.add(actions, 'exportSTL');
 };
 //
 function onWindowResize() {
