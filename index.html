@@ -29,6 +29,8 @@ body {
 <script src="./js/base.js"></script>
 <script src="./js/Perlin.js"></script>
 <script src="./js/PerlinSimplex.js"></script>
+
+<script src="./js/FileSaver.js"></script>
 <script>
 
 /*
@@ -62,7 +64,8 @@ var settings = {
 var actions = {
 	exportSTL: function () {
 		var exporter = new THREE.STLExporter();
-		window.BlobBuilder = window.BlobBuilder || window.WebKitBlobBuilder || window.MozBlobBuilder;
+		var blob = new Blob([exporter.exportMesh(terrainMesh)], {type: "text/plain;charset=utf-8"});
+		saveAs(blob, "mesh.stl");
 	}
 };
 
